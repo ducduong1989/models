@@ -22,7 +22,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import os.path
-import time
+import time, pickle
 import numpy as np
 from six.moves import range
 import tensorflow as tf
@@ -138,7 +138,8 @@ def _convert_train_id_to_eval_id(prediction, train_id_to_eval_id):
 
 def _process_batch(sess, original_images, semantic_predictions, image_names,
                    image_heights, image_widths, image_id_offset, save_dir,
-                   raw_save_dir, train_id_to_eval_id=None):
+                   raw_save_dir, train_id_to_eval_id=None, 
+                   mapping_file_name="mapping_file.csv"):
   """Evaluates one single batch qualitatively.
 
   Args:
@@ -161,34 +162,36 @@ def _process_batch(sess, original_images, semantic_predictions, image_names,
                              image_names, image_heights, image_widths])
 
   num_image = semantic_predictions.shape[0]
-  for i in range(num_image):
-    image_height = np.squeeze(image_heights[i])
-    image_width = np.squeeze(image_widths[i])
-    original_image = np.squeeze(original_images[i])
-    semantic_prediction = np.squeeze(semantic_predictions[i])
-    crop_semantic_prediction = semantic_prediction[:image_height, :image_width]
-
-    # Save image.
-    save_annotation.save_annotation(
-        original_image, save_dir, _IMAGE_FORMAT % (image_id_offset + i),
-        add_colormap=False)
-
-    # Save prediction.
-    save_annotation.save_annotation(
-        crop_semantic_prediction, save_dir,
-        _PREDICTION_FORMAT % (image_id_offset + i), add_colormap=True,
-        colormap_type=FLAGS.colormap_type)
-
-    if FLAGS.also_save_raw_predictions:
-      image_filename = os.path.basename(image_names[i])
-
-      if train_id_to_eval_id is not None:
-        crop_semantic_prediction = _convert_train_id_to_eval_id(
-            crop_semantic_prediction,
-            train_id_to_eval_id)
+  with open(os.path.join(save_dir, mapping_file_name), 'a') as filehandler:
+    for i in range(num_image):
+      image_height = np.squeeze(image_heights[i])
+      image_width = np.squeeze(image_widths[i])
+      original_image = np.squeeze(original_images[i])
+      semantic_prediction = np.squeeze(semantic_predictions[i])
+      crop_semantic_prediction = semantic_prediction[:image_height, :image_width]
+      print("saving image {} with prediction file name {}".format(image_names[i], _IMAGE_FORMAT % (image_id_offset + i)))
+      # Save image.
       save_annotation.save_annotation(
-          crop_semantic_prediction, raw_save_dir, image_filename,
+          original_image, save_dir, _IMAGE_FORMAT % (image_id_offset + i),
           add_colormap=False)
+      # Save mapping original image name and prediction name      
+      filehandler.write("{},{}\n".format(os.path.basename(image_names[i]), _PREDICTION_FORMAT % (image_id_offset + i)))
+      # Save prediction.
+      save_annotation.save_annotation(
+          crop_semantic_prediction, save_dir,
+          _PREDICTION_FORMAT % (image_id_offset + i), add_colormap=False,
+          colormap_type=FLAGS.colormap_type)
+
+      if FLAGS.also_save_raw_predictions:
+        image_filename = os.path.basename(image_names[i])
+
+        if train_id_to_eval_id is not None:
+          crop_semantic_prediction = _convert_train_id_to_eval_id(
+              crop_semantic_prediction,
+              train_id_to_eval_id)
+        save_annotation.save_annotation(
+            crop_semantic_prediction, raw_save_dir, image_filename,
+            add_colormap=False)
 
 
 def main(unused_argv):
@@ -223,6 +226,7 @@ def main(unused_argv):
   tf.gfile.MakeDirs(raw_save_dir)
 
   tf.logging.info('Visualizing on %s set', FLAGS.vis_split)
+
 
   with tf.Graph().as_default():
     samples = dataset.get_one_shot_iterator().get_next()

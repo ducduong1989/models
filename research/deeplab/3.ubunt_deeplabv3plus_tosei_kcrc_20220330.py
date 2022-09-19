@@ -869,8 +869,37 @@ def main():
     elapsed_time = time.time() - start
     print ("elapsed_time:{0}".format(elapsed_time) + "[sec]")
 
+def convert_label():
+    from deeplab.utils import get_dataset_colormap
+    import PIL.Image as img
+    import tensorflow as tf
+    origin_dir = "deeplab/vis/segmentation_results"
+    converted_dir = "deeplab/vis/segmentation_results_converted"
+    os.makedirs(converted_dir, exist_ok=True)
+    imgfiles = os.listdir(origin_dir)
+    l_originname = [s for s in imgfiles if '_prediction' not in s]
+    l_predname = [s for s in imgfiles if '_prediction' in s]
+    for predname in l_predname:
+        pred_img_path = os.path.join(origin_dir, predname)
+        data_img = np.array(Image.open(pred_img_path))        
+        data_img[data_img==2] = 4
+        data_img[data_img==3] = 9                    
+        color_map_img = get_dataset_colormap.label_to_color_image(
+            label=data_img, dataset=get_dataset_colormap.get_pascal_name()
+        )
+        pil_image = img.fromarray(color_map_img.astype(dtype=np.uint8))
+        with tf.gfile.Open(os.path.join(converted_dir, predname), mode='w') as f:
+            pil_image.save(f, 'PNG')
+    for originname in l_originname:
+        shutil.copyfile(os.path.join(origin_dir, originname),
+                        os.path.join(converted_dir, originname))
+
+
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    # convert_label()
     # img_path = 'data/CT_Original'
     # list_img = ['101_1']
     # for ind, filename in enumerate(list_img):      
@@ -893,18 +922,31 @@ if __name__ == "__main__":
     # img_data = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
     # print("Shape: {}".format(img_data.shape))
     # # print(img_data[img_data > 0])
-    # cv2.imshow("Masked", img_data)    
+    # cv2.imshow("Masked", img_data)
     # cv2.waitKey(0)
 
-    # test_path = '/workspaces/models/research/deeplab/datasets/pascal_voc_seg/VOC2012/generated/SegmentationClassRaw'
+    # test_path = '/workspaces/models/research/deeplab/vis/segmentation_results_converted'
     # labels_list = list()
     # for image_name in os.listdir(test_path):
     #     img_path = os.path.join(test_path, image_name)
-    #     data_img = np.array(Image.open(img_path))
+    #     if "_prediction" not in img_path:
+    #         continue
+    #     data_img = np.array(Image.open(img_path).convert('L'))
     #     print("Shape: {}".format(data_img.shape))
     #     labels_list.extend(list(set(data_img.flatten())))
 
     # print("xxxxxxxxxxxxxxxxxxxxxxxx labels_list: {}".format(list(set(labels_list))))
+
+    df_files = pd.read_csv("deeplab/vis/mapping_file.csv")   
+    mapping = dict()
+    for i in range(len(df_files)):
+        mapping[df_files.origin[i]] = df_files.generated[i]
+    print(len(mapping))
+    print(mapping)
+
+
+    
+
     
 
 

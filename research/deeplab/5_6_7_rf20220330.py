@@ -114,7 +114,7 @@ def _imgcount_(r, grayimg,imgdcm):
     npcolor = [15, 57]
     nplung = [255]
     temp = [np.count_nonzero(grayimg*r == s) for s in npcolor] + [np.count_nonzero(imgdcm*r == nplung)]
-
+    
     return(temp)
 
 
@@ -126,17 +126,20 @@ def _ctcal_(fname,imgfolder):
     grayimg = np.array(
                 Image.open(imgfolder + fname).convert('L')
             )
-
+    cv2.imshow("grayimg", grayimg)
     # IPF, NonIPFを検出するアルゴリズムにした場合、DL画像に肺は出ないので、一緒にvislogで一緒に産出される画像から中心座標を算出する
     # When using an algorithm that detects IPF and NonIPF, the lungs do not appear in the DL image, so calculate 
     # the center coordinates from the images produced together with vislog
     imgdcm = np.array(
                 Image.open(imgfolder + fname.replace('_prediction.png','_image.png')).convert('L')
             )
+    cv2.imshow("imgdcm", imgdcm)
     imgdcm[imgdcm > 0] = 255
-
+    cv2.imshow("imgdcm[imgdcm > 0] = 255", imgdcm)
     x, y, w, h = cv2.boundingRect(imgdcm) # 輪郭の検出 (contour detection)
-
+    imgdcm_copy = imgdcm.copy()
+    cv2.rectangle(imgdcm_copy, (x, y), (x+w, y+h), (255, 0, 0), 2)
+    cv2.imshow('imgdcm_copy', imgdcm_copy)
     # 中心座標の算出 (Calculation of center coordinates)
     xc = int(x + w/2)
     yc = int(y + h/2)
@@ -145,10 +148,15 @@ def _ctcal_(fname,imgfolder):
 
     # 分割するベースの領域を策定 (Formulate the area of the base to divide)
     r1 = _elo_shr2_(cimg,w,h,1/5, xc, yc)
+    cv2.imshow('r1', r1)
     r2 = _elo_shr2_(cimg,w,h,2/5, xc, yc) - _elo_shr_(cimg,w,h,1/5, xc, yc)
+    cv2.imshow('r2', r3)
     r3 = _elo_shr2_(cimg,w,h,3/5, xc, yc) - _elo_shr_(cimg,w,h,2/5, xc, yc)
+    cv2.imshow('r3', r3)
     r4 = _elo_shr2_(cimg,w,h,4/5, xc, yc) - _elo_shr_(cimg,w,h,3/5, xc, yc)
+    cv2.imshow('r4', r4)
     r5 = 1 - _elo_shr_(cimg,w,h,4/5,xc, yc)
+    cv2.imshow('r5', r5)
 
     # 要素数をカウント gray scale時のラベル [0; background, 22; IPF, 38; non-IPF, 128; lung]
     # Count the number of elements Label in gray scale [0; background, 22; IPF, 38; non-IPF, 128; lung]
@@ -284,27 +292,33 @@ def _readdf_(path):
 def _calcCT_(folderpath):
     # 対象画像のリスト
     # list of target images
-    imgfolder = folderpath + 'vislog/segmentation_results/'
+    imgfolder = folderpath + 'VOC2012/vislog/segmentation_results_converted/'
+
     imgfiles = os.listdir(imgfolder)
 
     # **_predictionがラベル画像 (n=3240)
     # **_prediction is label image (n=3240)
     l_predname = [s for s in imgfiles if '_prediction' in s]
     # ['000000_prediction.png', '000001_prediction.png', '000002_prediction.png']
-    
+    # mapping file prediction to original one
+    mapping_file = os.path.join(folderpath, 'VOC2012/vislog/mapping_file.csv')
+    df_files = pd.read_csv(mapping_file)  
+    mapping = dict()
+    for i in range(len(df_files)):
+        mapping[df_files.origin[i]] = df_files.generated[i]
     # lstからファイル名を読み込む train & val一括
     # read file name from lst train & val all at once
-    l_trainval = _readtxt_(folderpath+'lst/trainval.txt')
+    l_trainval = _readtxt_(folderpath+'VOC2012/generated/ImageSets/Segmentation/trainval.txt')
     # オーグメンテーションしていないファイルの位置を取得
     # get position of non-augmented file
-    l_orgfileloc = [l_trainval.index(s) for s in l_trainval if re.match('^[0-9]+_[0-9]+_e0', s.replace('KCRC',''))]
+    l_orgfileloc = [s for s in l_trainval if re.match('^[0-9]+_[0-9]+_e0', s.replace('KCRC',''))]
 
     l_ctcal = []
     for rowi in l_orgfileloc:
         # 画像読んで、5箇所に分割
         # Read the image and divide it into 5 parts
-        fname = l_predname[rowi]
-        l_ctcal.append(_ctcal_(fname,imgfolder) + [l_trainval[rowi]])
+        fname = mapping[rowi] + ".png"
+        l_ctcal.append(_ctcal_(fname,imgfolder) + [rowi])
     # [[0, 0, 0, 0, 0, 1559, 0, 0, 6647, 0, 0, 12990, 0, 1573, 22605, '101_2'],
     # [0, 0, 0, 0, 0, 947, 0, 0, 2202, 0, 874, 4389, 0, 1733, 18689, '347_4'], 
 
@@ -372,11 +386,11 @@ def main():
     print('  -----  program run  -----  ')
     print('********************')
 
-    efolder = '/home/ToseiKcrc/'
+    efolder = 'deeplab/datasets/'
     
     # 画像処理したフォルダ (# image processing folder)
-    orgfolder = efolder + 'tosei/'
-    testfolder = efolder + 'kcrc/'
+    orgfolder = efolder + 'pascal_voc_seg/'
+    testfolder = efolder + 'pascal_voc_seg/'
 
     # 臨床データを読み込む (# load clinical data)
     ctcal_path = orgfolder + 'ctcal_del.npy' # ct DL結果を分割した結果を格納 (Stores the result of splitting the DL result)
@@ -430,7 +444,7 @@ def main():
     else:
         # 臨床データ読み込み (Clinical data loading)
         df_tosei = _readdf_(orgfolder + 'AI_ILD_list_final.csv')
-        df_test = _readdf_(testfolder + 'for_rf_datasheet.csv')
+        df_test = _readdf_(testfolder + 'AI_ILD_list_final.csv')
 
 
         # % ***************************
@@ -555,6 +569,8 @@ def main():
         res_mean = np.mean(df_rfdemo[:,2:],axis = 1)
         # 5000番目までの位置を取得 (Get position up to 5000th)
         tarloc = np.where(res_mean > (sorted(res_mean.ravel())[-5000]))
+    else:
+        tarloc = [[2], [2,4]]
 
 
     # 症例番号を削除したctcal_bycaseを作成 (Create ctcal_bycase with case number removed)
@@ -595,28 +611,28 @@ def main():
         # l_temp = mincomplist + l_mode + l_pca + ['perFVC', 'FEV1FVC', 'perDLCO', 'age', 'gender', 'BMI']
         l_temp = ['age','ANA','BMI','CentromereType','gender','GranularType','HomogeneousType','MPOANCA','NuclearEnvelopeType','NucleolarType','perFVC','PeripheralType','RA','SpeckledType','Neu','Eo','Mac','Lym','antiSCL70','perDLCO','antiSSA_Ab','FEV1FVC','antiSm','antiSSB_Ab','antiARS_Ab','centromere','antiRNPAb','antiDsDNA','CD4CD8','PackYear','antiCCP','IgG','TCC','Jo1']
         l_scale, df_fill = _df_l_(arr_temp,'tosei',ctcal_bycase,l_colname,df_tosei,l_temp)
-        l_testscale, df_testfill = _df_l_(arr_testtemp,'KCRC',ctcal_testbycase,l_colname,df_test,l_temp)
+        l_testscale, df_testfill = _df_l_(arr_testtemp,'tosei',ctcal_testbycase,l_colname,df_test,l_temp)
 
 
         # lstからデータを読み込んでtrainとvalに分ける 
         # (Read data from lst and divide into train and val)
         l_train = [re.match('^[0-9]+', s).group() for s
-            in _readtxt_(orgfolder+'lst/train.txt')
+            in _readtxt_(orgfolder+'VOC2012/generated/ImageSets/Segmentation/train.txt')
             if re.match('^[0-9]+_[0-9]+_e0', s)
             ]
         l_val =  [re.match('^[0-9]+', s).group() for s
-            in _readtxt_(orgfolder+'lst/val.txt')
+            in _readtxt_(orgfolder+'VOC2012/generated/ImageSets/Segmentation/val.txt')
             if re.match('^[0-9]+_[0-9]+_e0', s)
             ]
         l_test =  [re.match('^[0-9]+', s.replace('KCRC','')).group() for s
-            in _readtxt_(testfolder+'lst/trainval.txt')
+            in _readtxt_(testfolder+'VOC2012/generated/ImageSets/Segmentation/trainval.txt')
             if re.match('^[0-9]+_[0-9]+_e0', s.replace('KCRC',''))
             ]
             
 
         X_train, y_train = _pd_np_forML_(l_train,df_fill,l_scale,'tosei')
         X_val, y_val = _pd_np_forML_(l_val,df_fill,l_scale,'tosei')
-        X_test, y_test = _pd_np_forML_(l_test,df_testfill,l_testscale,'KCRC')
+        X_test, y_test = _pd_np_forML_(l_test,df_testfill,l_testscale,'tosei')
 
 
         acc_train, cu_rf_train = _rftrain_(X_train,y_train)
