@@ -162,12 +162,12 @@ def _conv_mskgray_(mskfullpath):
             # [0;29;76;255] -> 肺外; nonIPF; IPF; 肺 [0; 4; 9; 1] に変換。
             # [0;29;76;255] -> convert to extrapulmonary; nonIPF; IPF; pulmonary [0; 4; 9; 1].
             gray = np.array(gray)
-            gray[gray==29] = 4
-            gray[gray==76] = 9
-            gray[gray==255] = 1
-            # gray[gray==29] = 2
-            # gray[gray==76] = 3
+            # gray[gray==29] = 4
+            # gray[gray==76] = 9
             # gray[gray==255] = 1
+            gray[gray==29] = 2
+            gray[gray==76] = 3
+            gray[gray==255] = 1
 
             # # gray[gray==0] = 255 -> 肺外削除のため最後に実行 (Last performed for extrapulmonary removal)
             # gray = Image.fromarray(gray)
@@ -873,6 +873,7 @@ def convert_label():
     from deeplab.utils import get_dataset_colormap
     import PIL.Image as img
     import tensorflow as tf
+
     origin_dir = "deeplab/vis/segmentation_results"
     converted_dir = "deeplab/vis/segmentation_results_converted"
     os.makedirs(converted_dir, exist_ok=True)
@@ -895,11 +896,36 @@ def convert_label():
                         os.path.join(converted_dir, originname))
 
 
+def convert_mask_raw():
+    from deeplab.utils import get_dataset_colormap
+    import PIL.Image as img
+    import tensorflow as tf
+
+    origin_dir = "deeplab/datasets/pascal_voc_seg/VOC2012/generated/SegmentationClassRaw/"
+    converted_dir = "deeplab/datasets/pascal_voc_seg/VOC2012/generated/ColorredSegmentationClassRaw/"
+    l_orgfileloc = ['009_1_e0', '009_2_e0', '009_3_e0', '009_4_e0',
+                    '304_1_e0', '304_2_e0', '304_3_e0', '304_4_e0',
+                    '504_1_e0', '504_2_e0', '504_3_e0', '504_4_e0',
+                    '807_1_e0', '807_2_e0', '807_3_e0', '807_4_e0'
+                    ]
+
+    for name in l_orgfileloc:        
+        mask_file = os.path.join(origin_dir, name + '.png')
+        data_img = np.array(Image.open(mask_file))   
+        data_img[data_img==2] = 4
+        data_img[data_img==3] = 9                    
+        color_map_img = get_dataset_colormap.label_to_color_image(
+            label=data_img, dataset=get_dataset_colormap.get_pascal_name()
+        )
+        pil_image = img.fromarray(color_map_img.astype(dtype=np.uint8))
+        with tf.gfile.Open(os.path.join(converted_dir, name + '.png'), mode='w') as f:
+            pil_image.save(f, 'PNG')
 
 
 if __name__ == "__main__":
     # main()
     # convert_label()
+    # convert_mask_raw()
     # img_path = 'data/CT_Original'
     # list_img = ['101_1']
     # for ind, filename in enumerate(list_img):      
@@ -937,14 +963,52 @@ if __name__ == "__main__":
 
     # print("xxxxxxxxxxxxxxxxxxxxxxxx labels_list: {}".format(list(set(labels_list))))
 
-    df_files = pd.read_csv("deeplab/vis/mapping_file.csv")   
-    mapping = dict()
-    for i in range(len(df_files)):
-        mapping[df_files.origin[i]] = df_files.generated[i]
-    print(len(mapping))
-    print(mapping)
+    # df_files = pd.read_csv("deeplab/vis/mapping_file.csv")   
+    # mapping = dict()
+    # for i in range(len(df_files)):
+    #     mapping[df_files.origin[i]] = df_files.generated[i]
+    # print(len(mapping))
+    # print(mapping)
 
+    # {0: 0, 1: 38, 2: 15, 3: 57}
+    # origin_prediction_path = 'deeplab/datasets/pascal_voc_seg/VOC2012/vislog/segmentation_results'
+    # colormapping_prediction_path = 'deeplab/datasets/pascal_voc_seg/VOC2012/vislog/segmentation_results_converted'
+    # origin_predictions = os.listdir(origin_prediction_path)
+    # mapping_label = dict()
+    # l_predname = [s for s in origin_predictions if '_prediction' in s]
+    # print("xxxxxxxxxxxxxxxxxxxxx l_predname: {}".format(l_predname))
+    # l_predname = ['000000_prediction.png']
+    # for prediction_name in l_predname:
+    #     origin_prediction_file = os.path.join(origin_prediction_path, prediction_name)
+    #     colormapping_prediction_file = os.path.join(colormapping_prediction_path, prediction_name)
+    #     assert os.path.isfile(origin_prediction_file) and os.path.isfile(colormapping_prediction_file)
+    #     origin_data = np.array(Image.open(origin_prediction_file).convert('L'))
+    #     colormapping_data = np.array(Image.open(colormapping_prediction_file).convert('L'))                
+    #     w, h = origin_data.shape
+    #     for i in range(w):
+    #         for j in range(h):
+    #             if origin_data[i,j] not in mapping_label.keys():
+    #                 mapping_label[origin_data[i,j]] = colormapping_data[i,j]
+    #             else:
+    #                 if mapping_label[origin_data[i,j]] != colormapping_data[i,j]:
+    #                     print("xxxxxxxxxxxxxxx diff at ({},{}) exist: {}, current: {}".format(i, j, mapping_label[origin_data[i,j]], colormapping_data[i,j]))
+    #                 else:
+    #                     pass
+    
+    # print(mapping_label)
 
+    converted_dir = "deeplab/datasets/pascal_voc_seg/VOC2012/generated/ColorredSegmentationClassRaw/"
+    l_orgfileloc = ['009_1_e0', '009_2_e0', '009_3_e0', '009_4_e0',
+                    '304_1_e0', '304_2_e0', '304_3_e0', '304_4_e0',
+                    '504_1_e0', '504_2_e0', '504_3_e0', '504_4_e0',
+                    '807_1_e0', '807_2_e0', '807_3_e0', '807_4_e0'
+                    ]
+    for name in l_orgfileloc:
+        mask_file = os.path.join(converted_dir, name + '.png')
+        cv2.imshow("colorred of {}".format(name + '.png'), np.array(Image.open(mask_file)))
+        grayimg = np.array(Image.open(mask_file).convert('L'))
+        cv2.imshow("gray of {}".format(name + '.png'), grayimg)
+        cv2.waitKey(0)
     
 
     
