@@ -111,6 +111,7 @@ def _elo_shr2_(f_cimg, f_w, f_h, f_shrate, xc, yc):
 def _imgcount_(r, grayimg,imgdcm):
     # 要素数をカウント gray scale時のラベル [0; background, 22; IPF, 57; non-IPF, 15; lung]
     # Count the number of elements Label in gray scale [0; background, 22; IPF, 57; non-IPF, 15; lung]
+    # --> labels(0,1,2,3) Count the number of elements Label in gray scale [0: background, 15: IPF, 57: non-IPF, 138: lung]
     npcolor = [15, 57]
     nplung = [255]
     temp = [np.count_nonzero(grayimg*r == s) for s in npcolor] + [np.count_nonzero(imgdcm*r == nplung)]
@@ -118,28 +119,29 @@ def _imgcount_(r, grayimg,imgdcm):
     return(temp)
 
 
-def _ctcal_(fname,imgfolder):
+def _ctcal_(fname,imgfolder, origin_name):
     # imgPIL = Image.open(imgfolder + fname)  # DL結果画像読み込み (DL result image loading)
     # arrPIL = np.asarray(imgPIL) # (512, 512, 3)
     # grayimg = cv2.cvtColor(arrPIL, cv2.COLOR_BGR2GRAY) # モノクロへ (to monochrome)
-
+    # cv2.imshow("colorred prediction of {}".format(origin_name), np.array(Image.open(imgfolder + fname)))
     grayimg = np.array(
                 Image.open(imgfolder + fname).convert('L')
             )
-    cv2.imshow("grayimg", grayimg)
+    # cv2.imshow("gray prediction of {}".format(origin_name), grayimg)
     # IPF, NonIPFを検出するアルゴリズムにした場合、DL画像に肺は出ないので、一緒にvislogで一緒に産出される画像から中心座標を算出する
     # When using an algorithm that detects IPF and NonIPF, the lungs do not appear in the DL image, so calculate 
     # the center coordinates from the images produced together with vislog
+    # cv2.imshow("colorred imgdcm of {}".format(origin_name), np.array(Image.open(imgfolder + fname.replace('_prediction.png','_image.png'))))
     imgdcm = np.array(
                 Image.open(imgfolder + fname.replace('_prediction.png','_image.png')).convert('L')
             )
-    cv2.imshow("imgdcm", imgdcm)
+    # cv2.imshow("gray imgdcm of {}".format(origin_name), imgdcm)
     imgdcm[imgdcm > 0] = 255
-    cv2.imshow("imgdcm[imgdcm > 0] = 255", imgdcm)
+    # cv2.imshow("gray imgdcm[imgdcm > 0] = 255 of {}".format(origin_name), imgdcm)
     x, y, w, h = cv2.boundingRect(imgdcm) # 輪郭の検出 (contour detection)
-    imgdcm_copy = imgdcm.copy()
-    cv2.rectangle(imgdcm_copy, (x, y), (x+w, y+h), (255, 0, 0), 2)
-    cv2.imshow('imgdcm_copy', imgdcm_copy)
+    # imgdcm_copy = imgdcm.copy()
+    # cv2.rectangle(imgdcm_copy, (x, y), (x+w, y+h), (255, 0, 0), 2)
+    # cv2.imshow("boundingRect imgdcm of {}".format(origin_name), imgdcm_copy)
     # 中心座標の算出 (Calculation of center coordinates)
     xc = int(x + w/2)
     yc = int(y + h/2)
@@ -148,20 +150,21 @@ def _ctcal_(fname,imgfolder):
 
     # 分割するベースの領域を策定 (Formulate the area of the base to divide)
     r1 = _elo_shr2_(cimg,w,h,1/5, xc, yc)
-    cv2.imshow('r1', r1)
+    # cv2.imshow('r1 of {}'.format(origin_name), r1)
     r2 = _elo_shr2_(cimg,w,h,2/5, xc, yc) - _elo_shr_(cimg,w,h,1/5, xc, yc)
-    cv2.imshow('r2', r3)
+    # cv2.imshow('r2 of {}'.format(origin_name), r2)
     r3 = _elo_shr2_(cimg,w,h,3/5, xc, yc) - _elo_shr_(cimg,w,h,2/5, xc, yc)
-    cv2.imshow('r3', r3)
+    # cv2.imshow('r3 of {}'.format(origin_name), r3)
     r4 = _elo_shr2_(cimg,w,h,4/5, xc, yc) - _elo_shr_(cimg,w,h,3/5, xc, yc)
-    cv2.imshow('r4', r4)
+    # cv2.imshow('r4 of {}'.format(origin_name), r4)
     r5 = 1 - _elo_shr_(cimg,w,h,4/5,xc, yc)
-    cv2.imshow('r5', r5)
+    # cv2.imshow('r5 of {}'.format(origin_name), r5)
 
     # 要素数をカウント gray scale時のラベル [0; background, 22; IPF, 38; non-IPF, 128; lung]
     # Count the number of elements Label in gray scale [0; background, 22; IPF, 38; non-IPF, 128; lung]
+    #--> labels (0,1,2,3) Count the number of elements Label in gray scale [0: background, 15: IPF, 57: non-IPF, 38: lung]
     ctcal_ret = _imgcount_(r1, grayimg, imgdcm) + _imgcount_(r2, grayimg, imgdcm) + _imgcount_(r3, grayimg, imgdcm) + _imgcount_(r4, grayimg, imgdcm) + _imgcount_(r5, grayimg, imgdcm)
-
+    # cv2.waitKey(0)
     return(ctcal_ret)
 
 
@@ -313,12 +316,19 @@ def _calcCT_(folderpath):
     # get position of non-augmented file
     l_orgfileloc = [s for s in l_trainval if re.match('^[0-9]+_[0-9]+_e0', s.replace('KCRC',''))]
 
+    l_orgfileloc = ['009_1_e0', '009_2_e0', '009_3_e0', '009_4_e0',
+                    '304_1_e0', '304_2_e0', '304_3_e0', '304_4_e0',
+                    '504_1_e0', '504_2_e0', '504_3_e0', '504_4_e0',
+                    '807_1_e0', '807_2_e0', '807_3_e0', '807_4_e0'
+                    ]
+
     l_ctcal = []
     for rowi in l_orgfileloc:
         # 画像読んで、5箇所に分割
         # Read the image and divide it into 5 parts
         fname = mapping[rowi] + ".png"
-        l_ctcal.append(_ctcal_(fname,imgfolder) + [rowi])
+        origin_name = rowi + ".png"
+        l_ctcal.append(_ctcal_(fname,imgfolder,origin_name) + [rowi])
     # [[0, 0, 0, 0, 0, 1559, 0, 0, 6647, 0, 0, 12990, 0, 1573, 22605, '101_2'],
     # [0, 0, 0, 0, 0, 947, 0, 0, 2202, 0, 874, 4389, 0, 1733, 18689, '347_4'], 
 

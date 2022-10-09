@@ -100,4 +100,8 @@ ENV/
 # Data
 *.png
 *.jpg
-models/research/deeplab/datasets/pascal_voc_seg/
+research/deeplab/datasets/pascal_voc_seg/
+research/deeplab/eval_result/
+research/deeplab/pretrained/
+research/deeplab/train_log/
+*.csv
