@@ -62,7 +62,9 @@ from PIL import Image, ImageOps
 import pandas as pd
 from pathlib import Path
 # import tensorflow as tf
-
+import abc
+from typing import Any
+import threading
 # from sklearn.metrics import confusion_matrix
 # from sklearn.metrics import accuracy_score
 
@@ -162,12 +164,12 @@ def _conv_mskgray_(mskfullpath):
             # [0;29;76;255] -> 肺外; nonIPF; IPF; 肺 [0; 4; 9; 1] に変換。
             # [0;29;76;255] -> convert to extrapulmonary; nonIPF; IPF; pulmonary [0; 4; 9; 1].
             gray = np.array(gray)
-            gray[gray==29] = 4
-            gray[gray==76] = 9
-            gray[gray==255] = 1
-            # gray[gray==29] = 2
-            # gray[gray==76] = 3
+            # gray[gray==29] = 4
+            # gray[gray==76] = 9
             # gray[gray==255] = 1
+            gray[gray==29] = 2
+            gray[gray==76] = 3
+            gray[gray==255] = 1
 
             # # gray[gray==0] = 255 -> 肺外削除のため最後に実行 (Last performed for extrapulmonary removal)
             # gray = Image.fromarray(gray)
@@ -873,6 +875,10 @@ def convert_label():
     from deeplab.utils import get_dataset_colormap
     import PIL.Image as img
     import tensorflow as tf
+    # ' Lung -> 1
+    # ' IPF -> 4
+    # ' NonIPF -> 9
+    # ' background ->> 0
     origin_dir = "deeplab/vis/segmentation_results"
     converted_dir = "deeplab/vis/segmentation_results_converted"
     os.makedirs(converted_dir, exist_ok=True)
@@ -895,10 +901,40 @@ def convert_label():
                         os.path.join(converted_dir, originname))
 
 
+def remove_lung_class():
+    import PIL.Image as img
+    import tensorflow as tf
 
+    # ' Lung        ->> 1 ->> 1 ->> 0
+    # ' IPF         ->> 4 ->> 2 ->> 1
+    # ' NonIPF      ->> 9 ->> 3 ->> 2
+    # ' background  ->> 0 ->> 0 ->> 0
+    label_folder        = "deeplab/datasets/pascal_voc_seg/VOC2012/generated/SegmentationClassRaw"
+    new_label_folder    = "deeplab/datasets/pascal_voc_seg/VOC2012/generated/SegmentationClassRaw_LungRemove"
+    os.makedirs(new_label_folder, exist_ok=True)
+
+    for filename in os.listdir(label_folder):
+        img_path = os.path.join(label_folder, filename)
+        data_img = np.array(Image.open(img_path))
+        # gray[gray==29] = 4
+        # gray[gray==76] = 9
+        # gray[gray==255] = 1
+
+        # gray[gray==29] = 2
+        # gray[gray==76] = 3
+        # gray[gray==255] = 1
+        # gray[gray==0] = 0
+        data_img[data_img==1] = 0
+        data_img[data_img==2] = 1
+        data_img[data_img==3] = 2
+        pil_image = img.fromarray(data_img.astype(dtype=np.uint8))
+        with tf.gfile.Open(os.path.join(new_label_folder, filename), mode='w') as f:
+            pil_image.save(f, 'PNG')
+        
 
 if __name__ == "__main__":
     # main()
+    # remove_lung_class()
     # convert_label()
     # img_path = 'data/CT_Original'
     # list_img = ['101_1']
@@ -925,25 +961,31 @@ if __name__ == "__main__":
     # cv2.imshow("Masked", img_data)
     # cv2.waitKey(0)
 
-    # test_path = '/workspaces/models/research/deeplab/vis/segmentation_results_converted'
+    # test_path = 'deeplab/datasets/pascal_voc_seg/VOC2012/generated/SegmentationClassRaw_LungRemove'
     # labels_list = list()
     # for image_name in os.listdir(test_path):
     #     img_path = os.path.join(test_path, image_name)
-    #     if "_prediction" not in img_path:
-    #         continue
-    #     data_img = np.array(Image.open(img_path).convert('L'))
+    #     # if "_prediction" not in img_path:
+    #     #     continue
+    #     data_img = np.array(Image.open(img_path))  #.convert('L')
     #     print("Shape: {}".format(data_img.shape))
     #     labels_list.extend(list(set(data_img.flatten())))
 
     # print("xxxxxxxxxxxxxxxxxxxxxxxx labels_list: {}".format(list(set(labels_list))))
 
-    df_files = pd.read_csv("deeplab/vis/mapping_file.csv")   
-    mapping = dict()
-    for i in range(len(df_files)):
-        mapping[df_files.origin[i]] = df_files.generated[i]
-    print(len(mapping))
-    print(mapping)
+    # df_files = pd.read_csv("deeplab/vis/mapping_file.csv")   
+    # mapping = dict()
+    # for i in range(len(df_files)):
+    #     mapping[df_files.origin[i]] = df_files.generated[i]
+    # print(len(mapping))
+    # print(mapping)
 
+
+    img_path = 'deeplab/datasets/pascal_voc_seg/VOC2012/generated/SegmentationClassRaw/002_1_e0.png'
+    data_img = np.array(Image.open(img_path))  #.convert('L')
+    print("Shape: {}".format(data_img.shape))
+    print(list(set(data_img.flatten())))
+    
 
     
 
