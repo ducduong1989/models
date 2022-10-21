@@ -3,6 +3,8 @@
 # Script to RF from when the segmented result image is saved
 import time
 import datetime
+from traceback import print_tb
+from turtle import st
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
@@ -36,6 +38,9 @@ from cuml import RandomForestClassifier as cuRF
 from cuml import accuracy_score as accuracy_score
 import cupy as cp
 
+import argparse
+
+
 
 def flatten(l):
     # '可変ネストされたリストを平坦化
@@ -63,7 +68,9 @@ def _readtxt_(path):
     f.close()
     return(l_lst)
 
-def _linear_(df,X,Y):
+def _linear_(df:pd.DataFrame,X,Y):    
+    if df[Y].isnull().sum() <= 0:
+        return df
     # % ロジスティク回帰
     # % logistic regression
     dfcomp = df[[X,Y]].dropna(how='any')
@@ -125,7 +132,7 @@ def _ctcal_(fname,imgfolder, origin_name):
     # grayimg = cv2.cvtColor(arrPIL, cv2.COLOR_BGR2GRAY) # モノクロへ (to monochrome)
     # cv2.imshow("colorred prediction of {}".format(origin_name), np.array(Image.open(imgfolder + fname)))
     grayimg = np.array(
-                Image.open(imgfolder + fname).convert('L')
+                Image.open(os.path.join(imgfolder, fname)).convert('L')
             )
     # cv2.imshow("gray prediction of {}".format(origin_name), grayimg)
     # IPF, NonIPFを検出するアルゴリズムにした場合、DL画像に肺は出ないので、一緒にvislogで一緒に産出される画像から中心座標を算出する
@@ -133,7 +140,7 @@ def _ctcal_(fname,imgfolder, origin_name):
     # the center coordinates from the images produced together with vislog
     # cv2.imshow("colorred imgdcm of {}".format(origin_name), np.array(Image.open(imgfolder + fname.replace('_prediction.png','_image.png'))))
     imgdcm = np.array(
-                Image.open(imgfolder + fname.replace('_prediction.png','_image.png')).convert('L')
+                Image.open(os.path.join(imgfolder, fname.replace('_prediction.png','_image.png'))).convert('L')
             )
     # cv2.imshow("gray imgdcm of {}".format(origin_name), imgdcm)
     imgdcm[imgdcm > 0] = 255
@@ -215,11 +222,11 @@ def _connect_CTresult_(v_ctcal_bycase,v_l_i,v_m,v_addval):
 
 def _cudf_from_pd_(df):
     # 'convert float64 to float32
-    # df_cp=cp.asarray(np.array(df))
-    df2 = pd.DataFrame(np.array(df))
-    df_cp = cudf.from_pandas(df2)
-    df_cp32 = df_cp.astype('float32')
-    return(df_cp32)
+    # df_cp=cp.asarray(np.array(df))    
+    df2 = pd.DataFrame(np.array(df))    
+    df_cp = cudf.from_pandas(df2.squeeze())    
+    df_cp32 = df_cp.astype('float32')    
+    return df_cp32
 
 
 def _rf_dfmake_(dfX,dfy):
@@ -238,9 +245,8 @@ def _rftrain_(df_X,df_y):
         # 'n_streams; int (default = 4)
             # 'Number of parallel streams used for forest building.
         # 'min_samples_leaf: int or float (default = 1)
-        # 'min_samples_split: int or float (default = 2)
-    df_X_g, df_y_g = _rf_dfmake_(df_X,df_y)
-
+        # 'min_samples_split: int or float (default = 2)    
+    df_X_g, df_y_g = _rf_dfmake_(df_X,df_y)    
     cu_rf = cuRF(
         n_estimators = 350, 
         max_depth = 8, 
@@ -274,6 +280,9 @@ def _rftest_(df_X,df_y,cu_rf):
         cu_rf.predict(df_X_g,predict_model='GPU'),
         df_y_g
         )
+    # preds = cu_rf.predict(df_X_g,predict_model='GPU')
+    # print("xxxxxxxxxxxxxxxxxxxxxx preds: {}".format(preds.shape))
+    # print(preds.to_arrow().tolist())
     return (accuracdf_y)
 
 
@@ -292,10 +301,11 @@ def _readdf_(path):
 
 
 
-def _calcCT_(folderpath):
+def _calcCT_(folderpath, imgfolder, mapping_file, trainvalfile):
     # 対象画像のリスト
     # list of target images
-    imgfolder = folderpath + 'VOC2012/vislog/segmentation_results_converted/'
+    # imgfolder = folderpath + 'VOC2012/vislog/segmentation_results_converted/'
+    # imgfolder = folderpath + 'VOC2012/vislog/hrnet/'
 
     imgfiles = os.listdir(imgfolder)
 
@@ -304,23 +314,24 @@ def _calcCT_(folderpath):
     l_predname = [s for s in imgfiles if '_prediction' in s]
     # ['000000_prediction.png', '000001_prediction.png', '000002_prediction.png']
     # mapping file prediction to original one
-    mapping_file = os.path.join(folderpath, 'VOC2012/vislog/mapping_file.csv')
+    # mapping_file = os.path.join(folderpath, 'VOC2012/vislog/mapping_file.csv')
+    # mapping_file = os.path.join(folderpath, 'VOC2012/vislog/mapping_hrnet.csv')
     df_files = pd.read_csv(mapping_file)  
     mapping = dict()
     for i in range(len(df_files)):
         mapping[df_files.origin[i]] = df_files.generated[i]
     # lstからファイル名を読み込む train & val一括
     # read file name from lst train & val all at once
-    l_trainval = _readtxt_(folderpath+'VOC2012/generated/ImageSets/Segmentation/trainval.txt')
+    l_trainval = _readtxt_(trainvalfile)
     # オーグメンテーションしていないファイルの位置を取得
     # get position of non-augmented file
     l_orgfileloc = [s for s in l_trainval if re.match('^[0-9]+_[0-9]+_e0', s.replace('KCRC',''))]
 
-    l_orgfileloc = ['009_1_e0', '009_2_e0', '009_3_e0', '009_4_e0',
-                    '304_1_e0', '304_2_e0', '304_3_e0', '304_4_e0',
-                    '504_1_e0', '504_2_e0', '504_3_e0', '504_4_e0',
-                    '807_1_e0', '807_2_e0', '807_3_e0', '807_4_e0'
-                    ]
+    # l_orgfileloc = ['009_1_e0', '009_2_e0', '009_3_e0', '009_4_e0',
+    #                 '304_1_e0', '304_2_e0', '304_3_e0', '304_4_e0',
+    #                 '504_1_e0', '504_2_e0', '504_3_e0', '504_4_e0',
+    #                 '807_1_e0', '807_2_e0', '807_3_e0', '807_4_e0'
+    #                 ]
 
     l_ctcal = []
     for rowi in l_orgfileloc:
@@ -390,17 +401,39 @@ def _df_l_(arr,hspname,ctcal,l_,df_,l_temp):
     return(l_out, df_fill)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Combine segmentation result and tabular data to train random forest')
+    parser.add_argument('--toisei_folder', help='root directory of toisei dataset', default='deeplab/datasets/tosei', type=str)    
+    parser.add_argument('--toisei_train_txt', help='training txt file of tosei dataset', default='deeplab/datasets/tosei/VOC2012/generated/ImageSets/Segmentation/train.txt',type=str)
+    parser.add_argument('--toisei_val_txt', help='val txt file of tosei dataset', default='deeplab/datasets/tosei/VOC2012/generated/ImageSets/Segmentation/val.txt', type=str)
+    parser.add_argument('--kcrc_folder', help='root directory of KCRC dataset', default='deeplab/datasets/kcrc', type=str)
+    parser.add_argument('--kcrc_test_txt', help='testing txt file of KCRC dataset', default='deeplab/datasets/kcrc/generated/ImageSets/Segmentation/val.txt', type=str)
+    parser.add_argument('--output_folder', help='output directory for result', default='deeplab/datasets', type=str)
+
+    ### Change information here if you change the segmentor
+    parser.add_argument('--toisei_seg_img_result_folder', help='directory of toisei dataset which contains predicted images', default='deeplab/datasets/tosei/VOC2012/vislog/hrnet', type=str)
+    parser.add_argument('--toisei_mapping_file', help='path of a file which maps prediction images with original name', default='deeplab/datasets/tosei/VOC2012/vislog/mapping_hrnet.csv', type=str)
+    parser.add_argument('--kcrc_seg_img_result_folder', help='directory of KCRC dataset which contains predicted images', default='deeplab/datasets/kcrc/vislog/hrnet', type=str)
+    parser.add_argument('--kcrc_mapping_file', help='path of a file which maps prediction images with original name', default='deeplab/datasets/kcrc/vislog/mapping_hrnet.csv', type=str)
+
+    return parser.parse_args()
+
 def main():
     start = time.time()
     print('********************')
     print('  -----  program run  -----  ')
     print('********************')
 
-    efolder = 'deeplab/datasets/'
+    # parse arguments
+    args = parse_args()    
+    print(args)
     
     # 画像処理したフォルダ (# image processing folder)
-    orgfolder = efolder + 'pascal_voc_seg/'
-    testfolder = efolder + 'pascal_voc_seg/'
+    orgfolder = args.toisei_folder
+    testfolder = args.kcrc_folder
+
+    assert os.path.exists(orgfolder), f"{orgfolder} does not exist. Please check the path."
+    assert os.path.exists(testfolder), f"{testfolder} does not exist. Please check the path."
 
     # 臨床データを読み込む (# load clinical data)
     ctcal_path = orgfolder + 'ctcal_del.npy' # ct DL結果を分割した結果を格納 (Stores the result of splitting the DL result)
@@ -408,7 +441,11 @@ def main():
     # 臨床データを読み込む (# Load clinical data)
     ctcal_testpath = testfolder + 'ctcal_del.npy' # ct DL結果を分割した結果を格納 (Stores the result of splitting the DL result)
     df_test_path = testfolder+ 'df_test_del.csv' # 臨床情報の欠損値処理をした結果を格納 (Stores the results of missing value treatment of clinical information)
-
+    # Clinical csv path
+    clinical_tosei_csv = os.path.join(orgfolder, 'AI_ILD_list_final.csv')
+    clinical_kcrc_csv = os.path.join(testfolder, 'df_test_del_rand.csv')
+    assert os.path.isfile(clinical_tosei_csv), f"{clinical_tosei_csv} does not exist. Please check the path of this file."
+    assert os.path.isfile(clinical_kcrc_csv), f"{clinical_kcrc_csv} does not exist. Please check the path of this file."
 
     # % compensent min value
     mincomplist = [
@@ -453,9 +490,10 @@ def main():
 
     else:
         # 臨床データ読み込み (Clinical data loading)
-        df_tosei = _readdf_(orgfolder + 'AI_ILD_list_final.csv')
-        df_test = _readdf_(testfolder + 'AI_ILD_list_final.csv')
-
+        df_tosei = _readdf_(clinical_tosei_csv)
+        df_test = _readdf_(clinical_kcrc_csv)
+        # df_test.describe()
+        df_test.info()
 
         # % ***************************
         # % 2群比較して、有意だったものはそのまま採用する (When comparing the 2 groups, those that are significant are adopted as they are.)
@@ -527,8 +565,8 @@ def main():
             df_tosei[i] = df_tosei[i] * df_tosei['ANA']
             df_test[i] = df_test[i] * df_test['ANA']
 
-        df_tosei.to_csv(df_tosei_path, index=False)
-        df_test.to_csv(df_test_path, index=False)
+        # df_tosei.to_csv(df_tosei_path, index=False)
+        # df_test.to_csv(df_test_path, index=False)
 
 
 
@@ -538,13 +576,25 @@ def main():
     if os.path.exists(ctcal_path):
         ctcal_bycase = np.load(ctcal_path)
     else:
-        ctcal_bycase = _calcCT_(orgfolder)
+        imgfolder = args.toisei_seg_img_result_folder   #os.path.join(orgfolder, "VOC2012/vislog/hrnet")
+        mapping_file = args.toisei_mapping_file # os.path.join(orgfolder, "VOC2012/vislog/mapping_hrnet.csv")
+        trainval_file = args.toisei_train_txt #os.path.join(orgfolder, "VOC2012/generated/ImageSets/Segmentation/train.txt")
+        assert os.path.exists(imgfolder), f"{imgfolder} does not exist. Please check the path."
+        assert os.path.isfile(mapping_file), f"{mapping_file} does not exist. Please check the path of this file."
+        assert os.path.isfile(trainval_file), f"{trainval_file} does not exist. Please check the path of this file."
+        ctcal_bycase = _calcCT_(folderpath=orgfolder, imgfolder=imgfolder, mapping_file=mapping_file, trainvalfile=trainval_file)        
         np.save(ctcal_path, ctcal_bycase)
 
     if os.path.exists(ctcal_testpath):
         ctcal_testbycase = np.load(ctcal_testpath)
     else:
-        ctcal_testbycase = _calcCT_(testfolder)
+        imgfolder = args.kcrc_seg_img_result_folder #os.path.join(testfolder, "vislog/hrnet")
+        mapping_file = args.kcrc_mapping_file #os.path.join(testfolder, "vislog/mapping_hrnet.csv")
+        trainval_file = args.kcrc_test_txt #os.path.join(testfolder, "generated/ImageSets/Segmentation/val.txt")
+        assert os.path.exists(imgfolder), f"{imgfolder} does not exist. Please check the path."
+        assert os.path.isfile(mapping_file), f"{mapping_file} does not exist. Please check the path of this file."
+        assert os.path.isfile(trainval_file), f"{trainval_file} does not exist. Please check the path of this file."
+        ctcal_testbycase = _calcCT_(folderpath=testfolder, imgfolder=imgfolder, mapping_file=mapping_file, trainvalfile=trainval_file)                
         np.save(ctcal_testpath, ctcal_testbycase)
 
 
@@ -571,14 +621,14 @@ def main():
     # (Read the RF results of the first random split and try only the split method that gave good results.)
     # 2列目にTrain、3列目にTestのACC値が記載 
     # (The ACC value of Train is listed in the 2nd column and the ACC value of Test is listed in the 3rd column.)
-    resultrf_path = '/home/toseidb/test/resultrf.csv'
+    resultrf_path = os.path.join(orgfolder, "resultrf.csv") 
     if os.path.exists(resultrf_path):
         df_svmresult = pd.read_csv(resultrf_path)
         df_rfdemo = df_svmresult.values
         # train,valの平均 (mean)
         res_mean = np.mean(df_rfdemo[:,2:],axis = 1)
         # 5000番目までの位置を取得 (Get position up to 5000th)
-        tarloc = np.where(res_mean > (sorted(res_mean.ravel())[-5000]))
+        tarloc = np.where(res_mean > (sorted(res_mean.ravel())[-5000]))        
     else:
         tarloc = [[2], [2,4]]
 
@@ -614,36 +664,40 @@ def main():
             # numpyのスライスでは[start:stop]、start <= x < stop。stop番目の値は含まれないので注意!! 
             # (For numpy slices [start:stop], start <= x < stop. Note that the stop-th value is not included!!)
             arr_temp = _ctcalcsum_(ctcal_bycase_f4,slice_num,l_i,arr_temp)
-            arr_testtemp = _ctcalcsum_(ctcal_testbycase_f4,slice_num,l_i,arr_testtemp)
-
-
+            arr_testtemp = _ctcalcsum_(ctcal_testbycase_f4,slice_num,l_i,arr_testtemp)            
 
         # l_temp = mincomplist + l_mode + l_pca + ['perFVC', 'FEV1FVC', 'perDLCO', 'age', 'gender', 'BMI']
         l_temp = ['age','ANA','BMI','CentromereType','gender','GranularType','HomogeneousType','MPOANCA','NuclearEnvelopeType','NucleolarType','perFVC','PeripheralType','RA','SpeckledType','Neu','Eo','Mac','Lym','antiSCL70','perDLCO','antiSSA_Ab','FEV1FVC','antiSm','antiSSB_Ab','antiARS_Ab','centromere','antiRNPAb','antiDsDNA','CD4CD8','PackYear','antiCCP','IgG','TCC','Jo1']
         l_scale, df_fill = _df_l_(arr_temp,'tosei',ctcal_bycase,l_colname,df_tosei,l_temp)
-        l_testscale, df_testfill = _df_l_(arr_testtemp,'tosei',ctcal_testbycase,l_colname,df_test,l_temp)
+        l_testscale, df_testfill = _df_l_(arr_testtemp,'KCRC',ctcal_testbycase,l_colname,df_test,l_temp)        
 
 
         # lstからデータを読み込んでtrainとvalに分ける 
         # (Read data from lst and divide into train and val)
+        ls_train_txt_file = args.toisei_train_txt #os.path.join(orgfolder, 'VOC2012/generated/ImageSets/Segmentation/train.txt')
+        ls_val_txt_file = args.toisei_train_txt #os.path.join(orgfolder, 'VOC2012/generated/ImageSets/Segmentation/val.txt')
+        ls_test_txt_file = args.kcrc_test_txt #os.path.join(testfolder, 'generated/ImageSets/Segmentation/val.txt')
+        assert os.path.isfile(ls_train_txt_file), f"{ls_train_txt_file} does not exist. Please check the path of this file."
+        assert os.path.isfile(ls_val_txt_file), f"{ls_val_txt_file} does not exist. Please check the path of this file."
+        assert os.path.isfile(ls_test_txt_file), f"{ls_test_txt_file} does not exist. Please check the path of this file."
+
         l_train = [re.match('^[0-9]+', s).group() for s
-            in _readtxt_(orgfolder+'VOC2012/generated/ImageSets/Segmentation/train.txt')
+            in _readtxt_(ls_train_txt_file)
             if re.match('^[0-9]+_[0-9]+_e0', s)
             ]
         l_val =  [re.match('^[0-9]+', s).group() for s
-            in _readtxt_(orgfolder+'VOC2012/generated/ImageSets/Segmentation/val.txt')
+            in _readtxt_(ls_val_txt_file)
             if re.match('^[0-9]+_[0-9]+_e0', s)
             ]
         l_test =  [re.match('^[0-9]+', s.replace('KCRC','')).group() for s
-            in _readtxt_(testfolder+'VOC2012/generated/ImageSets/Segmentation/trainval.txt')
+            in _readtxt_(ls_test_txt_file)
             if re.match('^[0-9]+_[0-9]+_e0', s.replace('KCRC',''))
             ]
             
 
         X_train, y_train = _pd_np_forML_(l_train,df_fill,l_scale,'tosei')
         X_val, y_val = _pd_np_forML_(l_val,df_fill,l_scale,'tosei')
-        X_test, y_test = _pd_np_forML_(l_test,df_testfill,l_testscale,'tosei')
-
+        X_test, y_test = _pd_np_forML_(l_test,df_testfill,l_testscale,'KCRC')
 
         acc_train, cu_rf_train = _rftrain_(X_train,y_train)
         acc_val = _rftest_(X_val,y_val,cu_rf_train)
@@ -651,7 +705,9 @@ def main():
 
         l_svmresult.append([i_loc, acc_train , acc_val, acc_test])
 
-    outpath = efolder+'RF'+ datetime.datetime.now().strftime('%Y%m%d') + 'rapids.csv'
+    output_dir = args.output_folder
+    os.makedirs(output_dir, exist_ok=True)
+    outpath = os.path.join(output_dir, 'RF'+ datetime.datetime.now().strftime('%Y%m%d') + 'rapids.csv')
     pd.DataFrame(l_svmresult).to_csv(outpath, index=False)
     print('出力は (The output is):{0}'.format(outpath))
 
